@@ -22,6 +22,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 #include <structmember.h>
 #include <datetime.h>
 
+// This is not working on fedora-17
+#undef SD_JOURNAL_FOREACH_UNIQUE
+
 typedef struct {
     PyObject_HEAD
     sd_journal *j;
@@ -126,12 +129,16 @@ static int
 Journal_init(Journal *self, PyObject *args, PyObject *keywds)
 {
     int flags=SD_JOURNAL_LOCAL_ONLY;
-    char *path=NULL;
+    // path and sd_journal_open_directory is not available on fedora-17
+    // char *path=NULL;
     PyObject *default_call=NULL, *call_dict=NULL;
 
-    static char *kwlist[] = {"flags", "default_call", "call_dict", "path", NULL};
+    // static char *kwlist[] = {"flags", "default_call", "call_dict", "path", NULL};
+    static char *kwlist[] = {"flags", "default_call", "call_dict", NULL};
+    // if (! PyArg_ParseTupleAndKeywords(args, keywds, "|iOOs", kwlist,
+    //                                  &flags, &default_call, &call_dict, &path))
     if (! PyArg_ParseTupleAndKeywords(args, keywds, "|iOOs", kwlist,
-                                      &flags, &default_call, &call_dict, &path))
+                                      &flags, &default_call, &call_dict))
         return 1;
 
     if (default_call) {
@@ -160,13 +167,17 @@ Journal_init(Journal *self, PyObject *args, PyObject *keywds)
     }
 
     int r;
-    if (path) {
+/*    if (path) {
         r = sd_journal_open_directory(&self->j, path, 0);
     }else{
         Py_BEGIN_ALLOW_THREADS
         r = sd_journal_open(&self->j, flags);
         Py_END_ALLOW_THREADS
     }
+*/
+    Py_BEGIN_ALLOW_THREADS
+    r = sd_journal_open(&self->j, flags);
+    Py_END_ALLOW_THREADS
     if (r == -EINVAL) {
         PyErr_SetString(PyExc_ValueError, "Invalid flags or path");
         return -1;
@@ -215,6 +226,18 @@ Journal___process_field(Journal *self, PyObject *key, const void *value, ssize_t
         return_value = Py_None;
     }
     return return_value;
+}
+
+PyDoc_STRVAR(Journal_get_fd__doc__,
+"get_fd(journalctl) -> int\n\n"
+"Return a file descriptor for the journal\n"
+);
+static PyObject *
+Journal_get_fd(Journal *self)
+{
+    int fd;
+    fd = sd_journal_get_fd(self->j);
+    return PyInt_FromLong(fd);
 }
 
 PyDoc_STRVAR(Journal_get_next__doc__,
@@ -476,7 +499,8 @@ Journal_add_match(Journal *self, PyObject *args, PyObject *keywds)
     Py_RETURN_NONE;
 }
 
-PyDoc_STRVAR(Journal_add_disjunction__doc__,
+// Not available on fedora-17
+/*PyDoc_STRVAR(Journal_add_disjunction__doc__,
 "add_disjunction() -> None\n\n"
 "Once called, all matches before and after are combined in logical\n"
 "OR.");
@@ -493,7 +517,7 @@ Journal_add_disjunction(Journal *self, PyObject *args)
         return NULL;
     }
     Py_RETURN_NONE;
-}
+}*/
 
 PyDoc_STRVAR(Journal_flush_matches__doc__,
 "flush_matches() -> None\n\n"
@@ -684,8 +708,9 @@ Journal_seek_monotonic(Journal *self, PyObject *args)
     }
     Py_RETURN_NONE;
 }
- 
-PyDoc_STRVAR(Journal_wait__doc__,
+
+// not available on fedora-17 
+/*PyDoc_STRVAR(Journal_wait__doc__,
 "wait([timeout]) -> Change state (integer)\n\n"
 "Waits until there is a change in the journal. Argument `timeout`\n"
 "is the maximum number of seconds to wait before returning\n"
@@ -716,7 +741,7 @@ Journal_wait(Journal *self, PyObject *args, PyObject *keywds)
 #else
     return PyInt_FromLong(r);
 #endif
-}
+}*/
 
 PyDoc_STRVAR(Journal_seek_cursor__doc__,
 "seek_cursor(cursor) -> None\n\n"
@@ -1035,14 +1060,16 @@ static PyGetSetDef Journal_getseters[] = {
 };
 
 static PyMethodDef Journal_methods[] = {
+    {"get_fd", (PyCFunction)Journal_get_fd, METH_NOARGS,
+    Journal_get_fd__doc__},
     {"get_next", (PyCFunction)Journal_get_next, METH_VARARGS,
     Journal_get_next__doc__},
     {"get_previous", (PyCFunction)Journal_get_previous, METH_VARARGS,
     Journal_get_previous__doc__},
     {"add_match", (PyCFunction)Journal_add_match, METH_VARARGS|METH_KEYWORDS,
     Journal_add_match__doc__},
-    {"add_disjunction", (PyCFunction)Journal_add_disjunction, METH_NOARGS,
-    Journal_add_disjunction__doc__},
+//    {"add_disjunction", (PyCFunction)Journal_add_disjunction, METH_NOARGS,
+//    Journal_add_disjunction__doc__},
     {"flush_matches", (PyCFunction)Journal_flush_matches, METH_NOARGS,
     Journal_flush_matches__doc__},
     {"seek", (PyCFunction)Journal_seek, METH_VARARGS | METH_KEYWORDS,
@@ -1051,8 +1078,8 @@ static PyMethodDef Journal_methods[] = {
     Journal_seek_realtime__doc__},
     {"seek_monotonic", (PyCFunction)Journal_seek_monotonic, METH_VARARGS,
     Journal_seek_monotonic__doc__},
-    {"wait", (PyCFunction)Journal_wait, METH_VARARGS,
-    Journal_wait__doc__},
+//    {"wait", (PyCFunction)Journal_wait, METH_VARARGS,
+//    Journal_wait__doc__},
     {"seek_cursor", (PyCFunction)Journal_seek_cursor, METH_VARARGS,
     Journal_seek_cursor__doc__},
 #ifdef SD_JOURNAL_FOREACH_UNIQUE
@@ -1153,7 +1180,7 @@ initpyjournalctl(void)
     PyModule_AddStringConstant(m, "__version__", "0.7.0");
     PyModule_AddIntConstant(m, "NOP", SD_JOURNAL_NOP);
     PyModule_AddIntConstant(m, "APPEND", SD_JOURNAL_APPEND);
-    PyModule_AddIntConstant(m, "INVALIDATE", SD_JOURNAL_INVALIDATE);
+    /* PyModule_AddIntConstant(m, "INVALIDATE", SD_JOURNAL_INVALIDATE); */ // not available on fedora-17
     PyModule_AddIntConstant(m, "LOCAL_ONLY", SD_JOURNAL_LOCAL_ONLY);
     PyModule_AddIntConstant(m, "RUNTIME_ONLY", SD_JOURNAL_RUNTIME_ONLY);
     PyModule_AddIntConstant(m, "SYSTEM_ONLY", SD_JOURNAL_SYSTEM_ONLY);
